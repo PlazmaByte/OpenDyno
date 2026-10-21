@@ -11,8 +11,8 @@ class EventHandler {
     Register() {
         this.Client.on(Events.InteractionCreate, interaction => this.RunSafe(() => this.CommandHandler.HandleInteraction(interaction), 'interaction'));
         this.Client.on(Events.MessageCreate, message => this.RunSafe(async () => {
-            await this.CommandHandler.HandleMessage(message);
-            await this.RunSafe(() => this.CommandHandler.HandleGuildActivity(message), 'guild message activity');
+            const activityData = await this.CommandHandler.HandleMessage(message);
+            await this.RunSafe(() => this.CommandHandler.HandleGuildActivity(message, activityData), 'guild message activity');
         }, 'message'));
         this.Client.on(Events.MessageDelete, message => this.RunSafe(async () => {
             if (!message.guild || message.author?.bot) return;

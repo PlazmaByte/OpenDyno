@@ -37,7 +37,13 @@ class DatabaseManager {
             let pool;
             try {
                 const { Pool } = require('pg');
-                pool = new Pool({ connectionString: AppConfig.DatabaseUrl, ssl: process.env.DATABASE_SSL === 'false' ? false : true });
+                pool = new Pool({
+                    connectionString: AppConfig.DatabaseUrl,
+                    ssl: process.env.DATABASE_SSL === 'false' ? false : true,
+                    max: 2,
+                    idleTimeoutMillis: 10000,
+                    connectionTimeoutMillis: 5000
+                });
                 await pool.query('SELECT 1');
                 await pool.query(`CREATE TABLE IF NOT EXISTS "OpenDynoGuildData" ("GuildId" TEXT PRIMARY KEY, "Data" JSONB NOT NULL)`);
                 await pool.query(`CREATE TABLE IF NOT EXISTS "GuildSettings" ("GuildId" TEXT PRIMARY KEY, "Prefix" TEXT NOT NULL DEFAULT '?', "LogChannelId" TEXT, "ModLogChannelId" TEXT, "MuteRoleId" TEXT, "AutoModEnabled" BOOLEAN NOT NULL DEFAULT TRUE)`);

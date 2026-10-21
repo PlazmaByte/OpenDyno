@@ -1,7 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { PermissionFlagsBits } = require('discord.js');
+const { Collection, PermissionFlagsBits, Routes } = require('discord.js');
+const { AppConfig } = require('../Configuration/AppConfig');
 const { CommandHandler } = require('../Source/Managers/CommandHandler');
+const { SlashCommands } = require('../Source/Managers/CommandRegistry');
 
 function CreateContext() {
     return {
@@ -35,6 +37,21 @@ test('administrator permissions grant both moderator and administrator access', 
 
     assert.equal(handler.CheckAccess({ Access: 'Moderator' }, context, { Mods: [] }), null);
     assert.equal(handler.CheckAccess({ Access: 'Administrator' }, context, { Mods: [] }), null);
+});
+
+test('slash command registration updates commands in one request', async () => {
+    const calls = [];
+    const handler = new CommandHandler({
+        rest: { put: async (...args) => calls.push(args) }
+    }, {});
+
+    await handler.RegisterSlashCommands();
+
+    if (!AppConfig.ClientId) {
+        assert.deepEqual(calls, []);
+        return;
+    }
+    assert.deepEqual(calls, [[Routes.applicationCommands(AppConfig.ClientId), { body: SlashCommands }]]);
 });
 
 test('levels and tags can be disabled independently', async () => {
@@ -89,3 +106,88 @@ test('disabled levels do not leave users stuck in the XP cooldown map', async ()
     handler.XpCooldowns.clear();
 });
 
+test('ordinary messages reuse their guild data read for guild activity', async () => {
+    const guildData = {
+        Settings: { Prefix: '?' },
+        Afk: {},
+        Highlights: {},
+        Modules: { levels: false },
+        Levels: {}
+    };
+    let reads = 0;
+    const handler = new CommandHandler({}, {
+        GetGuild: async () => {
+            reads += 1;
+            return guildData;
+        }
+    });
+    const message = {
+        guild: { id: 'guild-test' },
+        author: { id: 'user-test', bot: false },
+        content: 'ordinary message',
+        mentions: { users: new Map() },
+        channel: { send: async () => {} },
+        reply: async () => {}
+    };
+
+    const activityData = await handler.HandleMessage(message);
+    await handler.HandleGuildActivity(message, activityData);
+
+    assert.equal(reads, 1);
+});
+
+test('members command uses fetched members instead of relying on the bounded guild cache', async () => {
+    const role = { id: 'role-test', name: 'Helpers' };
+    const cachedMembers = new Collection();
+    const fetchedMembers = new Collection();
+    for (let index = 0; index < 2500; index += 1) {
+        const userId = `user-${index}`;
+        const hasRole = index < 1250;
+        const member = {
+            user: { tag: `${hasRole ? 'helper' : 'member'}#${String(index).padStart(4, '0')}` },
+            roles: { cache: hasRole ? new Collection([['role-test', role]]) : new Collection() }
+        };
+        fetchedMembers.set(userId, member);
+        if (index < 100) cachedMembers.set(userId, member);
+    }
+    const replies = [];
+    const context = {
+        Args: ['role-test'],
+        Guild: {
+            members: { cache: cachedMembers, fetch: async () => fetchedMembers },
+            roles: { cache: new Collection([['role-test', role]]) }
+        },
+        ReplyInfo: async (...args) => replies.push(args)
+    };
+    const handler = new CommandHandler({}, {});
+
+    await handler.RunModeration('members', context, { Cases: [] });
+
+    assert.equal(context.Guild.members.cache.size, 100);
+    assert.equal(replies[0][0], 'Members with Helpers');
+    assert.equal(replies[0][1], `1250 members\n${Array.from({ length: 80 }, (_, index) => `helper#${String(index).padStart(4, '0')}`).join('\n')}`);
+});
+
+test('member count uses the complete fetched collection, not the bounded guild cache', async () => {
+    const cachedMembers = new Collection();
+    const fetchedMembers = new Collection();
+    for (let index = 0; index < 2500; index += 1) {
+        const member = { user: { bot: index % 3 === 0 } };
+        fetchedMembers.set(`user-${index}`, member);
+        if (index < 100) cachedMembers.set(`user-${index}`, member);
+    }
+    const replies = [];
+    const context = {
+        Guild: {
+            memberCount: 2500,
+            members: { cache: cachedMembers, fetch: async () => fetchedMembers }
+        },
+        ReplyInfo: async (...args) => replies.push(args)
+    };
+    const handler = new CommandHandler({}, {});
+
+    await handler.RunUtility('membercount', context, {});
+
+    assert.equal(context.Guild.members.cache.size, 100);
+    assert.deepEqual(replies[0], ['Member Count', 'Total: 2,500\nHumans: 1,666\nBots: 834']);
+});

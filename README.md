@@ -19,6 +19,8 @@ Slash commands group only related operations into focused families instead of br
 
 When `DATABASE_URL` points to a reachable PostgreSQL database, OpenDyno creates and uses `OpenDynoGuildData`, `GuildSettings`, and `ModerationCases` tables. Otherwise, Node.js 22.5+ uses a persistent SQLite database at `Data/OpenDyno.sqlite`. If the built-in SQLite module is unavailable (for example, on Node.js 20), OpenDyno uses a persistent JSON fallback. Set `OPENDYNO_DATA_FILE` to change the local database or fallback file location.
 
+To limit memory use in larger servers, the Discord client keeps up to 100 guild members per server and 1,000 users in its shared cache; the bot's own guild member is retained. Commands that need complete member lists fetch the full list on demand, so cache limits do not truncate their results.
+
 ## Command areas
 
 - **Core:** `help`, `info`, `ping`, `stats`, `uptime`

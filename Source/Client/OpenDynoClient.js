@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Partials } = require('discord.js');
+const { Client, GatewayIntentBits, Options, Partials } = require('discord.js');
 const { DatabaseManager } = require('../Managers/DatabaseManager');
 const { CommandHandler } = require('../Managers/CommandHandler');
 const { AuditLogPipeline } = require('../Managers/AuditLogPipeline');
@@ -7,7 +7,16 @@ const { AppConfig } = require('../../Configuration/AppConfig');
 
 class OpenDynoClient extends Client {
     constructor() {
+        let client;
         super({
+            makeCache: Options.cacheWithLimits({
+                ...Options.DefaultMakeCacheSettings,
+                GuildMemberManager: {
+                    maxSize: 100,
+                    keepOverLimit: member => member.id === client?.user?.id
+                },
+                UserManager: 1000
+            }),
             intents: [
                 GatewayIntentBits.Guilds,
                 GatewayIntentBits.GuildMembers,
@@ -20,6 +29,7 @@ class OpenDynoClient extends Client {
             ],
             partials: [Partials.Message, Partials.Channel, Partials.Reaction]
         });
+        client = this;
         this.Database = new DatabaseManager();
         this.CommandHandler = new CommandHandler(this, this.Database);
         this.AuditLog = new AuditLogPipeline(this.Database);

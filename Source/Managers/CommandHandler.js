@@ -30,7 +30,6 @@ class CommandHandler {
             return;
         }
         const route = Routes.applicationCommands(AppConfig.ClientId);
-        await this.Client.rest.put(route, { body: [] });
         await this.Client.rest.put(route, { body: SlashCommands });
         console.log(`[Commands] Registered ${SlashCommands.length} slash commands.`);
     }
@@ -39,11 +38,11 @@ class CommandHandler {
         if (!message.guild || message.author.bot) return;
         const data = await this.Database.GetGuild(message.guild.id);
         const prefix = data.Settings.Prefix || AppConfig.DefaultPrefix;
-        if (!message.content.startsWith(prefix)) return;
+        if (!message.content.startsWith(prefix)) return data;
         const input = message.content.slice(prefix.length).trim();
-        if (!input) return;
+        if (!input) return data;
         const [name, ...args] = ArgumentParser.Parse(input);
-        if (!name) return;
+        if (!name) return data;
         const rootName = name.toLowerCase();
         const subcommandName = args[0]?.toLowerCase();
         const route = SlashFamilies[rootName]?.Subcommands[subcommandName];
@@ -51,20 +50,21 @@ class CommandHandler {
             args.shift();
             const command = this.CommandMap.get(route.Command);
             const context = new CommandContext(message, [...(route.Prefix || []), ...args, ...(route.Suffix || [])], false);
-            return this.Execute(command, context, data);
+            await this.Execute(command, context, data);
+            return;
         }
         const command = this.CommandMap.get(rootName);
         if (!command) {
             if (SlashFamilies[rootName]) {
                 const context = new CommandContext(message, [], false);
-                return context.ReplyError('Subcommand Required', `Use \`${prefix}${rootName} <subcommand> ...\`. See \`${prefix}help\` for available subcommands.`);
+                await context.ReplyError('Subcommand Required', `Use \`${prefix}${rootName} <subcommand> ...\`. See \`${prefix}help\` for available subcommands.`);
             }
             const custom = data.CustomCommands[name.toLowerCase()];
-            if (custom) return message.reply({ content: custom.slice(0, 2000), allowedMentions: { parse: [], repliedUser: false } });
+            if (custom) await message.reply({ content: custom.slice(0, 2000), allowedMentions: { parse: [], repliedUser: false } });
             return;
         }
         const context = new CommandContext(message, args, false);
-        return this.Execute(command, context, data);
+        await this.Execute(command, context, data);
     }
 
     async HandleInteraction(interaction) {
@@ -362,8 +362,8 @@ class CommandHandler {
         if (name === 'members') {
             const role = this.ResolveRole(context, args[0]);
             if (!role) return context.ReplyError('Role Not Found', 'Specify a role by mention, ID, or exact name.');
-            await context.Guild.members.fetch();
-            const members = role.members.map(member => member.user.tag);
+            const fetchedMembers = await context.Guild.members.fetch();
+            const members = fetchedMembers.filter(member => member.roles.cache.has(role.id)).map(member => member.user.tag);
             return context.ReplyInfo(`Members with ${role.name}`, `${members.length} member${members.length === 1 ? '' : 's'}${members.length ? `\n${members.slice(0, 80).join('\n')}` : ''}`);
         }
         if (name === 'modlogs' || name === 'warnings' || name === 'notes') {
@@ -952,8 +952,8 @@ class CommandHandler {
             return context.ReplyInfo('Invite Information', `Server: ${guild?.name || 'Unknown'}\nServer ID: ${guild?.id || 'Unknown'}\nMembers: ${invite.memberCount ?? 'Unavailable'}\nOnline: ${invite.presenceCount ?? 'Unavailable'}\nChannel: ${invite.channel?.name || 'Unavailable'}\nExpires: ${invite.expiresAt ? `<t:${Math.floor(invite.expiresAt.getTime() / 1000)}:R>` : 'Never or unknown'}`);
         }
         if (name === 'membercount') {
-            await context.Guild.members.fetch();
-            const bots = context.Guild.members.cache.filter(member => member.user.bot).size;
+            const members = await context.Guild.members.fetch();
+            const bots = members.filter(member => member.user.bot).size;
             return context.ReplyInfo('Member Count', `Total: ${context.Guild.memberCount.toLocaleString()}\nHumans: ${(context.Guild.memberCount - bots).toLocaleString()}\nBots: ${bots.toLocaleString()}`);
         }
         if (name === 'remindme') {
@@ -1165,9 +1165,9 @@ class CommandHandler {
         throw new Error(`No levels or tags implementation registered for ${name}.`);
     }
 
-    async HandleGuildActivity(message) {
+    async HandleGuildActivity(message, loadedData = null) {
         if (!message.guild || message.author.bot) return;
-        const data = await this.Database.GetGuild(message.guild.id);
+        const data = loadedData || await this.Database.GetGuild(message.guild.id);
         const afk = data.Afk[message.author.id];
         if (afk) {
             delete data.Afk[message.author.id];
