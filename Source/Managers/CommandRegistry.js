@@ -44,6 +44,7 @@ const Groups = {
         addmod: 'Grants moderator privileges to a role.',
         addrole: 'Creates a role.',
         announce: 'Posts an announcement to a channel.',
+        autorole: 'Configure roles automatically assigned to eligible joining members.',
         command: 'Enables or disables a command.',
         customs: 'Creates, lists, or removes custom text commands.',
         delmod: 'Revokes moderator privileges from a role.',
@@ -113,7 +114,7 @@ const ModeratorCommands = new Set([
 ]);
 
 const AdministratorCommands = new Set([
-    'addemote', 'addmod', 'addrole', 'announce', 'command', 'customs', 'delmod',
+    'addemote', 'addmod', 'addrole', 'announce', 'autorole', 'command', 'customs', 'delmod',
     'delrole', 'giveaway', 'ignorechannel', 'ignorerole', 'ignoreuser', 'language',
     'logchannel', 'mentionable', 'module', 'modlogchannel', 'nick', 'prefix',
     'rolecolor', 'rolename', 'rolepersist', 'setnick', 'temprole', 'warnthreshold',
@@ -321,6 +322,23 @@ const CommandArgumentOrders = {
 };
 
 const FamilyArguments = {
+    'autorole:add': [{ Type: 'Role', Name: 'role', Description: 'Role to assign to eligible joining members.' }],
+    'autorole:remove': [{ Type: 'Role', Name: 'role', Description: 'Configured role to remove.' }],
+    'autorole:list': [],
+    'autorole:status': [],
+    'autorole:clear': [{ Type: 'Boolean', Name: 'confirm', Description: 'Confirm removal of all configured Auto Roles.', Required: false }],
+    'autorole:enable': [],
+    'autorole:disable': [],
+    'autorole:set-bots': [{ Type: 'Boolean', Name: 'enabled', Description: 'Whether bot accounts receive Auto Roles.' }],
+    'autorole:set-humans': [{ Type: 'Boolean', Name: 'enabled', Description: 'Whether human members receive Auto Roles.' }],
+    'autorole:exempt-user-add': [{ Type: 'User', Name: 'member', Description: 'Server member to exempt.' }],
+    'autorole:exempt-user-remove': [{ Type: 'User', Name: 'member', Description: 'Previously exempted member.' }],
+    'autorole:exempt-role-add': [{ Type: 'Role', Name: 'role', Description: 'Role whose holders should be exempt.' }],
+    'autorole:exempt-role-remove': [{ Type: 'Role', Name: 'role', Description: 'Exempt role to remove.' }],
+    'autorole:exemptions': [],
+    'autorole:exemptions-clear': [{ Type: 'Boolean', Name: 'confirm', Description: 'Confirm removal of all Auto Role exemptions.', Required: false }],
+    'autorole:validate': [],
+    'autorole:sync': [{ Type: 'Boolean', Name: 'confirm', Description: 'Confirm applying configured roles to eligible existing members.', Required: false }],
     'role:assign': [
         { Type: 'User', Name: 'member', Description: 'Member to update.' },
         { Type: 'Role', Name: 'role', Description: 'Role to add.' }
@@ -429,6 +447,28 @@ function GetCommandArguments(commandName) {
 }
 
 const SlashFamilies = {
+    autorole: {
+        Description: 'Configure automatic roles for eligible joining members.',
+        Subcommands: {
+            add: { Command: 'autorole', Prefix: ['add'], Description: 'Add an automatic role.' },
+            remove: { Command: 'autorole', Prefix: ['remove'], Description: 'Remove an automatic role.' },
+            list: { Command: 'autorole', Prefix: ['list'], Description: 'List automatic roles.' },
+            status: { Command: 'autorole', Prefix: ['status'], Description: 'Show Auto Role settings and exemptions.' },
+            clear: { Command: 'autorole', Prefix: ['clear'], Description: 'Remove all configured automatic roles.' },
+            enable: { Command: 'autorole', Prefix: ['enable'], Description: 'Enable Auto Role assignments.' },
+            disable: { Command: 'autorole', Prefix: ['disable'], Description: 'Disable Auto Role assignments.' },
+            'set-bots': { Command: 'autorole', Prefix: ['set-bots'], Description: 'Set whether bots receive automatic roles.' },
+            'set-humans': { Command: 'autorole', Prefix: ['set-humans'], Description: 'Set whether humans receive automatic roles.' },
+            'exempt-user-add': { Command: 'autorole', Prefix: ['exempt-user-add'], Description: 'Exempt a member from automatic roles.' },
+            'exempt-user-remove': { Command: 'autorole', Prefix: ['exempt-user-remove'], Description: 'Remove a member exemption.' },
+            'exempt-role-add': { Command: 'autorole', Prefix: ['exempt-role-add'], Description: 'Exempt holders of a role from automatic roles.' },
+            'exempt-role-remove': { Command: 'autorole', Prefix: ['exempt-role-remove'], Description: 'Remove a role exemption.' },
+            exemptions: { Command: 'autorole', Prefix: ['exemptions'], Description: 'List member and role exemptions.' },
+            'exemptions-clear': { Command: 'autorole', Prefix: ['exemptions-clear'], Description: 'Clear all Auto Role exemptions.' },
+            validate: { Command: 'autorole', Prefix: ['validate'], Description: 'Check configured roles and bot permissions.' },
+            sync: { Command: 'autorole', Prefix: ['sync'], Description: 'Sync configured roles to eligible existing members.' }
+        }
+    },
     role: {
         Description: 'Manage roles, self-assignable ranks, and role details.',
         Subcommands: {

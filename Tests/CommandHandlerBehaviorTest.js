@@ -39,6 +39,25 @@ test('administrator permissions grant both moderator and administrator access', 
     assert.equal(handler.CheckAccess({ Access: 'Administrator' }, context, { Mods: [] }), null);
 });
 
+test('ban and kick commands require their corresponding Discord permissions', () => {
+    const handler = new CommandHandler({}, {});
+    const context = CreateContext();
+    const granted = new Set([PermissionFlagsBits.ManageMessages]);
+    context.Member.permissions.has = permission => granted.has(permission);
+
+    assert.ok(handler.CheckAccess(handler.CommandMap.get('ban'), context, { Mods: [] }));
+    assert.ok(handler.CheckAccess(handler.CommandMap.get('kick'), context, { Mods: [] }));
+
+    granted.add(PermissionFlagsBits.BanMembers);
+    assert.equal(handler.CheckAccess(handler.CommandMap.get('ban'), context, { Mods: [] }), null);
+    assert.equal(handler.CheckAccess(handler.CommandMap.get('softban'), context, { Mods: [] }), null);
+    assert.equal(handler.CheckAccess(handler.CommandMap.get('unban'), context, { Mods: [] }), null);
+    assert.ok(handler.CheckAccess(handler.CommandMap.get('kick'), context, { Mods: [] }));
+
+    granted.add(PermissionFlagsBits.KickMembers);
+    assert.equal(handler.CheckAccess(handler.CommandMap.get('kick'), context, { Mods: [] }), null);
+});
+
 test('slash command registration updates commands in one request', async () => {
     const calls = [];
     const handler = new CommandHandler({

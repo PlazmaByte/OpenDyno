@@ -21,8 +21,11 @@ Slash commands use Discord-native option types where appropriate: user, role, an
 | `/ignore` | `channel`, `role`, `user`, `list` | `?ignore channel #off-topic` |
 | `/channel` | `lock`, `unlock`, `lockdown`, `purge`, `clean`, `slowmode`, `diagnose`, `members`, `reactions` | `?channel purge 25 links` |
 | `/automod` | `enable`, `disable`, `status` | `?automod disable` |
+| `/autorole` | `add`, `remove`, `list`, `status`, `clear`, `enable`, `disable`, `set-bots`, `set-humans`, `exempt-user-add`, `exempt-user-remove`, `exempt-role-add`, `exempt-role-remove`, `exemptions`, `exemptions-clear`, `validate`, `sync` | `?autorole add @role`, `?autorole enable` |
 
 Family subcommands accept the same arguments as their original direct command. Their slash form can be used from the Discord command picker; prefix forms use the family and subcommand names shown above.
+
+Auto Role configuration commands require server administrator access. OpenDyno needs the server-level **Manage Roles** permission, and each configured role must be below both the bot's highest role and the configuring administrator's highest role (server owners may configure any otherwise-assignable role). `/autorole clear` and `/autorole exemptions-clear` require `confirm:true`; prefix syntax uses `confirm`, for example `?autorole clear confirm`. Role exemptions skip members already holding any listed role. Member exemptions skip only the named member. Configuration changes do not affect current members. `/autorole sync` first explains its impact and requires a separate explicit confirmation (`/autorole sync confirm:true` or `?autorole sync confirm`); it applies configured roles sequentially to eligible existing members and reports assignments, skips, and failures. Deleted, managed, or no-longer-assignable roles are skipped and reported by `/autorole validate`.
 
 ## Standalone commands
 

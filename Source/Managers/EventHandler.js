@@ -1,5 +1,6 @@
 const { EmbedBuilder, Events } = require('discord.js');
 const { AppConfig } = require('../../Configuration/AppConfig');
+const { AutoRoleManager } = require('./AutoRoleManager');
 
 class EventHandler {
     constructor(client, commandHandler, auditLog) {
@@ -34,12 +35,18 @@ class EventHandler {
         this.Client.on(Events.GuildMemberAdd, member => this.RunSafe(async () => {
             const data = await this.CommandHandler.Database.GetGuild(member.guild.id);
             const roleIds = data.PersistentRoles[member.id] || [];
+            const botHighestRole = member.guild.members.me?.roles.highest;
             for (const roleId of roleIds) {
                 const role = member.guild.roles.cache.get(roleId);
-                if (role && !role.managed && role.position < member.guild.members.me.roles.highest.position) {
-                    await member.roles.add(role, 'Restored persistent role');
+                if (role && botHighestRole && !role.managed && role.position < botHighestRole.position) {
+                    try {
+                        await member.roles.add(role, 'Restored persistent role');
+                    } catch (error) {
+                        console.error(`[Event] Could not restore persistent role ${roleId} to member ${member.id}:`, error);
+                    }
                 }
             }
+            await AutoRoleManager.AssignOnJoin(member, data);
             const embed = new EmbedBuilder().setColor(AppConfig.Colors.Success).setTitle('Member Joined')
                 .setDescription(`${member.user.tag} (${member.id})`).setTimestamp();
             await this.AuditLog.Write(member.guild, embed);

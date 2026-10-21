@@ -12,15 +12,17 @@ const { ErrorHandler } = require('../Utilities/ErrorHandler');
 const { PermissionChecker } = require('../Utilities/PermissionChecker');
 const { TimeParser } = require('../Utilities/TimeParser');
 const { ArgumentParser } = require('../Utilities/ArgumentParser');
+const { AutoRoleManager } = require('./AutoRoleManager');
 
 const DefaultReason = 'No reason provided.';
 const MentionPattern = /^<@!?(\d+)>$/;
 const IdPattern = /^\d{15,22}$/;
 
 class CommandHandler {
-    constructor(client, database) {
+    constructor(client, database, auditLog = null) {
         this.Client = client;
         this.Database = database;
+        this.AuditLog = auditLog;
         this.CommandMap = CommandMap;
     }
 
@@ -147,8 +149,16 @@ class CommandHandler {
         const administrator = context.Member.permissions.has(PermissionFlagsBits.Administrator) ||
             context.Guild.ownerId === context.User.id;
         const configuredModerator = data.Mods.some(roleId => context.Member.roles.cache.has(roleId));
+        const commandPermission = {
+            ban: PermissionFlagsBits.BanMembers,
+            softban: PermissionFlagsBits.BanMembers,
+            unban: PermissionFlagsBits.BanMembers,
+            kick: PermissionFlagsBits.KickMembers
+        }[command.Name];
         const permission = command.Access === 'Moderator'
-            ? context.Member.permissions.has(PermissionFlagsBits.ModerateMembers) || context.Member.permissions.has(PermissionFlagsBits.ManageMessages)
+            ? commandPermission
+                ? context.Member.permissions.has(commandPermission)
+                : context.Member.permissions.has(PermissionFlagsBits.ModerateMembers) || context.Member.permissions.has(PermissionFlagsBits.ManageMessages)
             : administrator;
         const hasAccess = command.Access === 'Administrator'
             ? administrator
@@ -162,6 +172,7 @@ class CommandHandler {
     }
 
     async Run(name, context, data) {
+        if (name === 'autorole') return AutoRoleManager.HandleCommand(context, this.Database, this.AuditLog);
         if (Groups.Core && Object.hasOwn(Groups.Core, name)) return this.RunCore(name, context);
         if (Groups.Moderation && Object.hasOwn(Groups.Moderation, name)) return this.RunModeration(name, context, data);
         if (Groups.Management && Object.hasOwn(Groups.Management, name)) return this.RunManagement(name, context, data);
@@ -198,6 +209,11 @@ class CommandHandler {
 
     async RecordModerationCase(context, data, userId, action, reason = DefaultReason, duration = null, active = true, moderatorId = context.User.id) {
         const caseId = await this.Database.CreateCase(context.Guild.id, userId, moderatorId, action, reason, duration, active);
+        await this.LogModerationCase(context, data, caseId, userId, action, reason, duration, moderatorId);
+        return caseId;
+    }
+
+    async LogModerationCase(context, data, caseId, userId, action, reason, duration = null, moderatorId = context.User.id) {
         const channelId = data.Settings.ModLogChannelId;
         if (channelId) {
             try {
@@ -213,7 +229,6 @@ class CommandHandler {
                 console.error(`[Moderation] Case #${caseId} was stored, but could not be sent to the moderation log:`, error);
             }
         }
-        return caseId;
     }
 
     async RunCore(name, context) {
@@ -386,24 +401,35 @@ class CommandHandler {
         if (name === 'clearnotes' || name === 'clearwarn') {
             if (!userIdFrom) return context.ReplyError('Member Required', 'Specify a member or user ID.');
             const key = name === 'clearnotes' ? 'Notes' : 'Warnings';
-            const matching = data[key].filter(item => item.UserId === userIdFrom && (key !== 'Warnings' || item.Active !== false));
-            const before = matching.length;
             if (key === 'Notes') {
+                const before = data.Notes.filter(item => item.UserId === userIdFrom).length;
                 data.Notes = data.Notes.filter(item => item.UserId !== userIdFrom);
-            } else {
+                await this.Database.SaveGuild(context.Guild.id, data);
+                return context.ReplySuccess('Notes Cleared', `Removed ${before} note(s).`);
+            }
+            const updatedCaseIds = [];
+            let clearedCount = 0;
+            const updated = await this.Database.UpdateGuild(context.Guild.id, currentData => {
+                const matching = currentData.Warnings.filter(item =>
+                    item.UserId === userIdFrom && item.Active !== false
+                );
+                clearedCount = matching.length;
                 for (const warning of matching) {
                     warning.Active = false;
-                    const warningCase = data.Cases.find(entry => entry.CaseId === warning.CaseId);
-                    if (warningCase) {
+                    const warningCase = currentData.Cases.find(entry => entry.CaseId === warning.CaseId);
+                    if (warningCase?.Active) {
                         warningCase.Active = false;
-                        await this.Database.UpdateCase(context.Guild.id, warningCase.CaseId, { Active: false });
+                        updatedCaseIds.push(warningCase.CaseId);
                     }
                 }
+                return matching.length;
+            });
+            for (const caseId of updatedCaseIds) {
+                await this.Database.UpdateCase(context.Guild.id, caseId, { Active: false });
             }
-            await this.Database.SaveGuild(context.Guild.id, data);
-            return context.ReplySuccess(name === 'clearnotes' ? 'Notes Cleared' : 'Warnings Cleared', name === 'clearnotes'
-                ? `Removed ${before} note(s).`
-                : `Cleared ${before} active warning(s); warning history was retained.`);
+            data.Warnings = updated.Warnings;
+            data.Cases = updated.Cases;
+            return context.ReplySuccess('Warnings Cleared', `Cleared ${clearedCount} active warning(s); warning history was retained.`);
         }
         if (name === 'note') {
             if (!userIdFrom || !args.slice(1).join(' ').trim()) return context.ReplyError('Usage', 'Use note <member> <private note>.');
@@ -417,28 +443,56 @@ class CommandHandler {
             const error = this.TargetError(context, target);
             if (error) return context.ReplyError('Cannot Warn Member', error);
             const reason = reasonFrom();
-            const id = Math.max(0, ...data.Warnings.map(item => item.Id || 0)) + 1;
-            const caseId = await this.RecordModerationCase(context, data, target.id, 'WARN', reason);
-            data.Cases.push({ CaseId: caseId, GuildId: context.Guild.id, UserId: target.id, ModeratorId: context.User.id, ActionType: 'WARN', Reason: reason, Duration: null, Timestamp: new Date().toISOString(), Active: true });
-            data.Warnings.push({ Id: id, UserId: target.id, ModeratorId: context.User.id, Reason: reason, CaseId: caseId, Timestamp: new Date().toISOString(), Active: true });
-            const threshold = data.Settings.WarningThresholds;
-            const warningCount = data.Warnings.filter(item => item.UserId === target.id && item.Active).length;
-            if (threshold?.Count && warningCount === threshold.Count && threshold.Action === 'MUTE') {
+            const created = await this.Database.CreateWarning(context.Guild.id, target.id, context.User.id, reason);
+            const { Case: warningCase, Warning: warning } = created;
+            await this.LogModerationCase(
+                context, data, warningCase.CaseId, target.id, 'WARN', reason, null, context.User.id
+            );
+            const threshold = created.WarningThresholds ?? data.Settings.WarningThresholds;
+            let escalationMessage = '';
+            if (threshold?.Count && created.PreviousWarningCount < threshold.Count &&
+                created.WarningCount >= threshold.Count && threshold.Action === 'MUTE') {
                 const configuredDuration = Number(threshold.Duration);
                 const duration = Number.isSafeInteger(configuredDuration) && configuredDuration > 0 && configuredDuration <= 28 * 86400000
                     ? configuredDuration : 600000;
-                await target.timeout(duration, `Automatic warning threshold reached (${warningCount})`);
-                const muteCaseId = await this.RecordModerationCase(context, data, target.id, 'MUTE', 'Automatic warning threshold reached.', duration, true, this.Client.user.id);
-                data.Cases.push({ CaseId: muteCaseId, GuildId: context.Guild.id, UserId: target.id, ModeratorId: this.Client.user.id, ActionType: 'MUTE', Reason: 'Automatic warning threshold reached.', Duration: duration, Timestamp: new Date().toISOString(), Active: true });
-                const expiresAt = Date.now() + duration;
-                data.TimedActions.push({ Type: 'MUTE', UserId: target.id, CaseId: muteCaseId, ExpiresAt: expiresAt });
-                this.ScheduleMuteExpiry(context.Guild.id, muteCaseId, expiresAt);
+                let timeoutApplied = false;
+                try {
+                    await target.timeout(duration, `Automatic warning threshold reached (${created.WarningCount})`);
+                    timeoutApplied = true;
+                    const muteCaseId = await this.RecordModerationCase(
+                        context, data, target.id, 'MUTE', 'Automatic warning threshold reached.',
+                        duration, true, this.Client.user.id
+                    );
+                    const expiresAt = Date.now() + duration;
+                    await this.Database.UpdateGuild(context.Guild.id, currentData => {
+                        currentData.TimedActions.push({
+                            Type: 'MUTE', UserId: target.id, CaseId: muteCaseId, ExpiresAt: expiresAt
+                        });
+                    });
+                    this.ScheduleMuteExpiry(context.Guild.id, muteCaseId, expiresAt);
+                    escalationMessage = ` Automatic timeout applied for ${TimeParser.Format(duration)}.`;
+                } catch (escalationError) {
+                    console.error(`[Moderation] Warning #${warning.Id} was recorded, but its automatic timeout processing failed:`, escalationError);
+                    escalationMessage = timeoutApplied
+                        ? ' The timeout was applied, but its moderation record or expiry could not be saved.'
+                        : ' The warning was recorded, but the automatic timeout could not be applied.';
+                }
             }
-            await this.Database.SaveGuild(context.Guild.id, data);
-            await target.send({ embeds: [EmbedFactory.CreateWarning('Server Warning', `You were warned in **${context.Guild.name}**.\nReason: ${reason}`)] }).catch(error => {
-                if (error.code !== 50007) throw error;
-            });
-            return context.ReplySuccess('Warning Recorded', `${target.user.tag} was warned. Case #${caseId}; warning #${id}.`);
+            let notificationMessage = '';
+            try {
+                await target.send({
+                    embeds: [EmbedFactory.CreateWarning('Server Warning', `You were warned in **${context.Guild.name}**.\nReason: ${reason}`)]
+                });
+            } catch (notificationError) {
+                console.error(`[Moderation] Warning #${warning.Id} was recorded, but its direct notification failed:`, notificationError);
+                notificationMessage = notificationError.code === 50007
+                    ? ' The member could not be notified because direct messages are disabled.'
+                    : ' The member notification could not be delivered.';
+            }
+            return context.ReplySuccess(
+                'Warning Recorded',
+                `${target.user.tag} was warned. Case #${warningCase.CaseId}; warning #${warning.Id}.${escalationMessage}${notificationMessage}`
+            );
         }
         if (name === 'ban' || name === 'softban' || name === 'kick' || name === 'mute' || name === 'unmute') {
             const targetId = target?.id || (IdPattern.test(args[0] || '') ? args[0] : null);
@@ -451,10 +505,10 @@ class CommandHandler {
                 const reason = reasonFrom(2);
                 await target.timeout(duration, reason);
                 const caseId = await this.RecordModerationCase(context, data, target.id, 'MUTE', reason, duration);
-                data.Cases.push({ CaseId: caseId, GuildId: context.Guild.id, UserId: target.id, ModeratorId: context.User.id, ActionType: 'MUTE', Reason: reason, Duration: duration, Timestamp: new Date().toISOString(), Active: true });
                 const expiresAt = Date.now() + duration;
-                data.TimedActions.push({ Type: 'MUTE', UserId: target.id, CaseId: caseId, ExpiresAt: expiresAt });
-                await this.Database.SaveGuild(context.Guild.id, data);
+                await this.Database.UpdateGuild(context.Guild.id, currentData => {
+                    currentData.TimedActions.push({ Type: 'MUTE', UserId: target.id, CaseId: caseId, ExpiresAt: expiresAt });
+                });
                 this.ScheduleMuteExpiry(context.Guild.id, caseId, expiresAt);
                 return context.ReplySuccess('Member Timed Out', `${target.user.tag} was timed out for ${TimeParser.Format(duration)}. Case #${caseId}.`);
             }
@@ -463,11 +517,20 @@ class CommandHandler {
                 const muteRoleId = data.Settings.MuteRoleId;
                 const muteRole = muteRoleId && context.Guild.roles.cache.get(muteRoleId);
                 if (muteRole && target.roles.cache.has(muteRole.id)) await target.roles.remove(muteRole, reasonFrom());
-                for (const entry of data.Cases) if (entry.UserId === target.id && entry.ActionType === 'MUTE' && entry.Active) entry.Active = false;
-                data.TimedActions = data.TimedActions.filter(item => !(item.Type === 'MUTE' && item.UserId === target.id));
-                await this.Database.SaveGuild(context.Guild.id, data);
-                for (const entry of data.Cases.filter(item => item.UserId === target.id && item.ActionType === 'MUTE' && !item.Active)) {
-                    await this.Database.UpdateCase(context.Guild.id, entry.CaseId, { Active: false });
+                const updatedCaseIds = [];
+                await this.Database.UpdateGuild(context.Guild.id, currentData => {
+                    for (const entry of currentData.Cases) {
+                        if (entry.UserId === target.id && entry.ActionType === 'MUTE' && entry.Active) {
+                            entry.Active = false;
+                            updatedCaseIds.push(entry.CaseId);
+                        }
+                    }
+                    currentData.TimedActions = currentData.TimedActions.filter(item =>
+                        !(item.Type === 'MUTE' && item.UserId === target.id)
+                    );
+                });
+                for (const caseId of updatedCaseIds) {
+                    await this.Database.UpdateCase(context.Guild.id, caseId, { Active: false });
                 }
                 const caseId = await this.RecordModerationCase(context, data, target.id, 'UNMUTE', reasonFrom(), null, false);
                 return context.ReplySuccess('Timeout Removed', `${target.user.tag}'s timeout was removed. Case #${caseId}.`);
@@ -503,26 +566,52 @@ class CommandHandler {
         if (name === 'unban') {
             if (!IdPattern.test(args[0] || '')) return context.ReplyError('User ID Required', 'Use unban <user ID> [reason].');
             await context.Guild.members.unban(args[0], reasonFrom());
-            for (const entry of data.Cases) {
-                if (entry.UserId === args[0] && entry.ActionType === 'BAN' && entry.Active) {
-                    entry.Active = false;
-                    await this.Database.UpdateCase(context.Guild.id, entry.CaseId, { Active: false });
+            const updatedCaseIds = [];
+            await this.Database.UpdateGuild(context.Guild.id, currentData => {
+                for (const entry of currentData.Cases) {
+                    if (entry.UserId === args[0] && entry.ActionType === 'BAN' && entry.Active) {
+                        entry.Active = false;
+                        updatedCaseIds.push(entry.CaseId);
+                    }
                 }
+            });
+            for (const caseId of updatedCaseIds) {
+                await this.Database.UpdateCase(context.Guild.id, caseId, { Active: false });
             }
-            await this.Database.SaveGuild(context.Guild.id, data);
             const caseId = await this.RecordModerationCase(context, data, args[0], 'UNBAN', reasonFrom(), null, false);
             return context.ReplySuccess('User Unbanned', `User ${args[0]} was unbanned. Case #${caseId}.`);
         }
         if (name === 'delnote' || name === 'editnote' || name === 'delwarn') {
             const id = Number(args[0]);
-            const key = name === 'delwarn' ? 'Warnings' : 'Notes';
-            const entryIndex = data[key].findIndex(item => item.Id === id);
-            if (entryIndex === -1) return context.ReplyError('Entry Not Found', `No ${key.toLowerCase()} entry #${id} exists.`);
+            if (name === 'delwarn') {
+                const updatedCaseIds = [];
+                let removed = false;
+                const updated = await this.Database.UpdateGuild(context.Guild.id, currentData => {
+                    const warningIndex = currentData.Warnings.findIndex(item => item.Id === id);
+                    if (warningIndex === -1) return;
+                    const [warning] = currentData.Warnings.splice(warningIndex, 1);
+                    removed = true;
+                    const warningCase = currentData.Cases.find(entry => entry.CaseId === warning.CaseId);
+                    if (warningCase?.Active) {
+                        warningCase.Active = false;
+                        updatedCaseIds.push(warningCase.CaseId);
+                    }
+                });
+                if (!removed) return context.ReplyError('Entry Not Found', `No warnings entry #${id} exists.`);
+                for (const caseId of updatedCaseIds) {
+                    await this.Database.UpdateCase(context.Guild.id, caseId, { Active: false });
+                }
+                data.Warnings = updated.Warnings;
+                data.Cases = updated.Cases;
+                return context.ReplySuccess('Entry Deleted', `Entry #${id} was deleted.`);
+            }
+            const entryIndex = data.Notes.findIndex(item => item.Id === id);
+            if (entryIndex === -1) return context.ReplyError('Entry Not Found', `No notes entry #${id} exists.`);
             if (name === 'editnote') {
                 const content = args.slice(1).join(' ').trim();
                 if (!content) return context.ReplyError('Text Required', 'Provide the replacement note text.');
                 data.Notes[entryIndex].Content = content;
-            } else data[key].splice(entryIndex, 1);
+            } else data.Notes.splice(entryIndex, 1);
             await this.Database.SaveGuild(context.Guild.id, data);
             return context.ReplySuccess(name === 'editnote' ? 'Note Updated' : 'Entry Deleted', `Entry #${id} was ${name === 'editnote' ? 'updated' : 'deleted'}.`);
         }
@@ -530,8 +619,10 @@ class CommandHandler {
             const entry = data.Cases.find(item => item.CaseId === Number(args[0]));
             const reason = args.slice(1).join(' ').trim();
             if (!entry || !reason) return context.ReplyError('Usage', 'Use reason <case ID> <new reason>.');
-            entry.Reason = reason;
-            await this.Database.SaveGuild(context.Guild.id, data);
+            await this.Database.UpdateGuild(context.Guild.id, currentData => {
+                const currentEntry = currentData.Cases.find(item => item.CaseId === entry.CaseId);
+                if (currentEntry) currentEntry.Reason = reason;
+            });
             await this.Database.UpdateCase(context.Guild.id, entry.CaseId, { Reason: reason });
             return context.ReplySuccess('Reason Updated', `Case #${entry.CaseId} reason was updated.`);
         }
@@ -542,22 +633,29 @@ class CommandHandler {
             const member = await this.ResolveMember(context, entry.UserId);
             if (!member) return context.ReplyError('Member Not Found', 'That case member is no longer in this server.');
             await member.timeout(duration, `Duration updated by ${context.User.tag}`);
-            entry.Duration = duration;
             const expiresAt = Date.now() + duration;
-            let timed = data.TimedActions.find(item => item.CaseId === entry.CaseId);
-            if (!timed) {
-                timed = { Type: 'MUTE', UserId: entry.UserId, CaseId: entry.CaseId };
-                data.TimedActions.push(timed);
-            }
-            timed.ExpiresAt = expiresAt;
-            await this.Database.SaveGuild(context.Guild.id, data);
+            await this.Database.UpdateGuild(context.Guild.id, currentData => {
+                const currentEntry = currentData.Cases.find(item => item.CaseId === entry.CaseId);
+                if (currentEntry) currentEntry.Duration = duration;
+                let timed = currentData.TimedActions.find(item => item.Type === 'MUTE' && item.CaseId === entry.CaseId);
+                if (!timed) {
+                    timed = { Type: 'MUTE', UserId: entry.UserId, CaseId: entry.CaseId };
+                    currentData.TimedActions.push(timed);
+                }
+                timed.ExpiresAt = expiresAt;
+            });
             await this.Database.UpdateCase(context.Guild.id, entry.CaseId, { Duration: duration });
             this.ScheduleMuteExpiry(context.Guild.id, entry.CaseId, expiresAt);
             return context.ReplySuccess('Duration Updated', `Case #${entry.CaseId} is now ${TimeParser.Format(duration)}.`);
         }
         if (name === 'moderations') {
             const active = data.Cases.filter(entry => entry.Active && entry.Duration);
-            const lines = active.map(entry => `#${entry.CaseId} ${entry.ActionType} <@${entry.UserId}> — ${TimeParser.Format(Math.max(0, entry.Timestamp ? new Date(entry.Timestamp).getTime() + entry.Duration - Date.now() : entry.Duration))}`);
+            const lines = active.map(entry => {
+                const timedAction = data.TimedActions.find(item => item.Type === 'MUTE' && item.CaseId === entry.CaseId);
+                const expiresAt = timedAction?.ExpiresAt ??
+                    (entry.Timestamp ? new Date(entry.Timestamp).getTime() + entry.Duration : Date.now() + entry.Duration);
+                return `#${entry.CaseId} ${entry.ActionType} <@${entry.UserId}> — ${TimeParser.Format(Math.max(0, expiresAt - Date.now()))}`;
+            });
             return context.ReplyInfo('Active Temporary Moderations', lines.join('\n') || 'No active temporary actions were found.');
         }
         if (name === 'modstats') {
@@ -778,10 +876,15 @@ class CommandHandler {
                 if (!duration) return context.ReplyError('Invalid Duration', 'Use a duration such as 10m, 2h, or 1d.');
                 await member.roles.add(role);
                 const expiresAt = Date.now() + duration;
-                const existing = data.TimedActions.find(item => item.Type === 'ROLE' && item.UserId === member.id && item.RoleId === role.id);
-                if (existing) existing.ExpiresAt = expiresAt;
-                else data.TimedActions.push({ Type: 'ROLE', UserId: member.id, RoleId: role.id, ExpiresAt: expiresAt });
-                await this.Database.SaveGuild(context.Guild.id, data);
+                await this.Database.UpdateGuild(context.Guild.id, currentData => {
+                    const existing = currentData.TimedActions.find(item =>
+                        item.Type === 'ROLE' && item.UserId === member.id && item.RoleId === role.id
+                    );
+                    if (existing) existing.ExpiresAt = expiresAt;
+                    else currentData.TimedActions.push({
+                        Type: 'ROLE', UserId: member.id, RoleId: role.id, ExpiresAt: expiresAt
+                    });
+                });
                 this.ScheduleRoleRemoval(context.Guild.id, member.id, role.id, expiresAt);
                 return context.ReplySuccess('Temporary Role Added', `${role.name} was granted for ${TimeParser.Format(duration)}.`);
             }
@@ -965,8 +1068,12 @@ class CommandHandler {
             const guildId = context.Guild.id;
             const deadline = Date.now() + duration;
             const reminderId = randomUUID();
-            data.TimedActions.push({ Type: 'REMINDER', Id: reminderId, UserId: userId, ChannelId: channelId, Message: reminder, ExpiresAt: deadline });
-            await this.Database.SaveGuild(guildId, data);
+            await this.Database.UpdateGuild(guildId, currentData => {
+                currentData.TimedActions.push({
+                    Type: 'REMINDER', Id: reminderId, UserId: userId, ChannelId: channelId,
+                    Message: reminder, ExpiresAt: deadline
+                });
+            });
             this.ScheduleReminder(guildId, reminderId, userId, channelId, reminder, deadline);
             return context.ReplySuccess('Reminder Set', `I’ll remind you in ${TimeParser.Format(duration)}.`);
         }

@@ -31,8 +31,8 @@ class OpenDynoClient extends Client {
         });
         client = this;
         this.Database = new DatabaseManager();
-        this.CommandHandler = new CommandHandler(this, this.Database);
         this.AuditLog = new AuditLogPipeline(this.Database);
+        this.CommandHandler = new CommandHandler(this, this.Database, this.AuditLog);
         this.EventHandler = new EventHandler(this, this.CommandHandler, this.AuditLog);
         this.EventHandler.Register();
         this.once('ready', () => this.OnReady());
