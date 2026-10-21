@@ -4,6 +4,11 @@ class PermissionChecker {
     static CanModerate(context, targetMember) {
         if (!targetMember) return 'That member is not in this server.';
         if (targetMember.id === context.Guild.ownerId) return 'The server owner cannot be targeted.';
+        return this.CanManageMember(context, targetMember);
+    }
+
+    static CanManageMember(context, targetMember) {
+        if (!targetMember) return 'That member is not in this server.';
         if (context.Member.id !== context.Guild.ownerId &&
             targetMember.roles.highest.comparePositionTo(context.Member.roles.highest) >= 0) {
             return 'That member has an equal or higher role than you.';

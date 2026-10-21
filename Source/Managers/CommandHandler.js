@@ -741,7 +741,7 @@ class CommandHandler {
             const member = await this.ResolveMember(context, args[0]);
             const role = this.ResolveRole(context, args[1]);
             if (!member || !role) return context.ReplyError('Usage', 'Use role <member> <role> [add|remove].');
-            const hierarchyError = this.TargetError(context, member);
+            const hierarchyError = PermissionChecker.CanManageMember(context, member);
             if (hierarchyError) return context.ReplyError('Cannot Manage Member', hierarchyError);
             if (role.managed || role.position >= context.Guild.members.me.roles.highest.position ||
                 (context.Guild.ownerId !== context.User.id && role.position >= context.Member.roles.highest.position)) {
@@ -754,7 +754,7 @@ class CommandHandler {
         if (name === 'setnick') {
             const member = await this.ResolveMember(context, args[0]);
             if (!member) return context.ReplyError('Member Not Found', 'Specify a current server member.');
-            const hierarchyError = this.TargetError(context, member);
+            const hierarchyError = PermissionChecker.CanManageMember(context, member);
             if (hierarchyError) return context.ReplyError('Cannot Rename Member', hierarchyError);
             const nickname = args.slice(1).join(' ').trim();
             await member.setNickname(nickname || null, `Changed by ${context.User.tag}`);
@@ -769,7 +769,7 @@ class CommandHandler {
             const member = await this.ResolveMember(context, args[0]);
             const role = this.ResolveRole(context, args[1]);
             if (!member || !role) return context.ReplyError('Usage', name === 'temprole' ? 'Use temprole <member> <role> <duration>.' : 'Use rolepersist <member> <role>.');
-            const hierarchyError = this.TargetError(context, member);
+            const hierarchyError = PermissionChecker.CanManageMember(context, member);
             if (hierarchyError) return context.ReplyError('Cannot Manage Member', hierarchyError);
             if (role.managed || role.position >= context.Guild.members.me.roles.highest.position ||
                 (context.Guild.ownerId !== context.User.id && role.position >= context.Member.roles.highest.position)) return context.ReplyError('Role Hierarchy', 'That role is too high for you or OpenDyno to manage.');

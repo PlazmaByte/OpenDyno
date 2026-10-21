@@ -1,6 +1,30 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { CommandHandler } = require('../Source/Managers/CommandHandler');
+const { PermissionChecker } = require('../Source/Utilities/PermissionChecker');
+
+function MakeMember(id, position) {
+    return {
+        id,
+        roles: {
+            highest: {
+                comparePositionTo: role => position - role.position,
+                position
+            }
+        }
+    };
+}
+
+test('server owner protection applies to moderation, not member management hierarchy checks', () => {
+    const context = {
+        Guild: { ownerId: 'owner', members: { me: MakeMember('bot', 10) } },
+        Member: MakeMember('moderator', 5)
+    };
+    const owner = MakeMember('owner', 1);
+
+    assert.equal(PermissionChecker.CanModerate(context, owner), 'The server owner cannot be targeted.');
+    assert.equal(PermissionChecker.CanManageMember(context, owner), null);
+});
 
 test('clearing warnings deactivates records and retains the warning history', async () => {
     const updates = [];
