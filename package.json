@@ -1,0 +1,30 @@
+{
+  "name": "opendyno",
+  "version": "1.0.0",
+  "description": "A modular Discord moderation, utility, and server management bot.",
+  "main": "Index.js",
+  "scripts": {
+    "start": "node Index.js",
+    "dev": "nodemon Index.js",
+    "test": "node --test Tests/TimeParserTest.js Tests/ArgumentParserTest.js Tests/CommandRegistryTest.js Tests/GroupedCommandTest.js Tests/DatabaseManagerTest.js Tests/ModerationCommandTest.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "@prisma/adapter-neon": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "discord.js": "^14.27.0",
+    "dotenv": "^18.0.8",
+    "pg": "^8.23.1",
+    "prisma": "^8.0.0-rc.23"
+  }
+}
