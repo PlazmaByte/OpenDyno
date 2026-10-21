@@ -20,15 +20,26 @@ test('related command families use focused roots instead of broad category roots
                 assert.ok(route, `missing route for /${slashCommand.name} ${option.name}`);
                 assert.ok(Commands.some(command => command.Name === route.Command));
                 reachable.add(route.Command);
+                let optionalSeen = false;
+                for (const argument of option.options) {
+                    if (!argument.required) optionalSeen = true;
+                    else assert.ok(!optionalSeen, `required option follows optional option in /${slashCommand.name} ${option.name}`);
+                }
                 assert.ok(option.options.every(argument => argument.name !== 'arguments'));
                 assert.ok(option.options.every(argument => argument.description !== 'Command arguments'));
             } else {
-                assert.equal(option.type, 3);
                 assert.notEqual(option.name, 'arguments');
                 assert.ok(option.description.length > 0);
                 const route = SlashRoutes.get(slashCommand.name);
                 assert.ok(route, `missing direct route for /${slashCommand.name}`);
                 reachable.add(route.Command);
+            }
+        }
+        if (!isFamily) {
+            let optionalSeen = false;
+            for (const argument of slashCommand.options) {
+                if (!argument.required) optionalSeen = true;
+                else assert.ok(!optionalSeen, `required option follows optional option in /${slashCommand.name}`);
             }
         }
         if (!isFamily) {
@@ -63,10 +74,29 @@ test('slash inputs use descriptive names and only appear for commands that accep
     for (const input of inputs) {
         assert.match(input.option.name, /^[a-z][a-z0-9_-]{0,31}$/);
         assert.notEqual(input.option.name, 'arguments', input.name);
-        assert.notEqual(input.option.description, 'Command arguments', input.name);
         assert.ok(input.option.description.length > 0, input.name);
     }
     assert.ok(!inputs.some(input => input.name === '/ping' || input.name === 'automod status'));
+});
+
+test('slash commands use Discord-native target and numeric option types', () => {
+    const optionTypes = (commandName, subcommandName) => {
+        const command = SlashCommands.find(item => item.name === commandName);
+        const options = subcommandName
+            ? command.options.find(item => item.name === subcommandName).options
+            : command.options;
+        return options.map(option => [option.name, option.type]);
+    };
+
+    assert.deepEqual(optionTypes('ban'), [['member', 6], ['purge_days', 4], ['reason', 3]]);
+    assert.deepEqual(optionTypes('channel', 'slowmode'), [['seconds', 4]]);
+    assert.deepEqual(optionTypes('role', 'assign'), [['member', 6], ['role', 8]]);
+    assert.deepEqual(optionTypes('role', 'create'), [['role_name', 3], ['hex_color', 3], ['hoist', 5]]);
+    assert.deepEqual(optionTypes('ignore', 'channel'), [['channel', 7]]);
+    assert.deepEqual(optionTypes('cases', 'show'), [['case_id', 4]]);
+    assert.deepEqual(optionTypes('warnthreshold'), [['warning_count', 4], ['timeout_duration', 3]]);
+    assert.deepEqual(optionTypes('announce'), [['message', 3], ['channel', 7]]);
+    assert.deepEqual(optionTypes('setnick'), [['member', 6], ['nickname', 3]]);
 });
 
 test('command names and descriptions fit Discord application command constraints', () => {

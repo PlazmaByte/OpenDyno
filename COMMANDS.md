@@ -2,11 +2,12 @@
 
 OpenDyno commands are available as Discord slash commands and as prefix commands. The default prefix is `?`; server administrators can change it with `?prefix <new-prefix>`.
 
-Slash commands use a descriptive optional field for the command's input. Quote values containing spaces, for example:
+Slash commands use Discord-native option types where appropriate: user, role, and channel inputs offer pickers, and numeric inputs use integer fields. Free-form inputs such as reasons and durations remain text. Quote values containing spaces in prefix commands, for example:
 
 ```text
 ?setnick @member "A new nickname"
-/setnick member_and_nickname: @member "A new nickname"
+?role assign @member @role
+/role assign member: @member role: @role
 ```
 
 ## Focused command families

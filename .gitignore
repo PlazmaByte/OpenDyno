@@ -4,3 +4,4 @@ Data/
 .env.*
 !.env.example
 npm-debug.log*
+OpenDyno_Master_Blueprint.json

@@ -75,10 +75,22 @@ class CommandHandler {
             console.error(`[Commands] Slash route ${interaction.commandName}${subcommandName ? ` ${subcommandName}` : ''} has no handler.`);
             return interaction.reply({ content: 'This command is temporarily unavailable.', ephemeral: true });
         }
-        const input = route.ArgumentOption
-            ? interaction.options.getString(route.ArgumentOption.Name) || ''
-            : '';
-        const context = new CommandContext(interaction, [...(route.Prefix || []), ...ArgumentParser.Parse(input), ...(route.Suffix || [])], true);
+        let slashArgs = [];
+        if (route.Arguments?.[0]?.Legacy) {
+            const input = interaction.options.getString(route.Arguments[0].Name) || '';
+            slashArgs = ArgumentParser.Parse(input);
+        } else if (route.Arguments?.length) {
+            slashArgs = route.Arguments.map(argument => {
+                const getter = `get${argument.Type}`;
+                const value = interaction.options[getter](argument.Name);
+                if (value === null || value === undefined) return '';
+                if (argument.Type === 'Boolean' && argument.Name === 'hoist') return value ? 'hoist' : '';
+                return ['User', 'Role', 'Channel'].includes(argument.Type) ? value.id : String(value);
+            });
+            if (route.ArgumentOrder) slashArgs = route.ArgumentOrder.map(index => slashArgs[index]);
+            while (slashArgs.length && slashArgs[slashArgs.length - 1] === '') slashArgs.pop();
+        }
+        const context = new CommandContext(interaction, [...(route.Prefix || []), ...slashArgs, ...(route.Suffix || [])], true);
         const command = this.CommandMap.get(route.Command);
         if (!command) {
             console.error(`[Commands] Slash route target ${route.Command} is not registered.`);
@@ -782,7 +794,7 @@ class CommandHandler {
         }
         if (name === 'announce') {
             const channel = this.ResolveChannel(context, args[0]) || context.Channel;
-            const text = args[0] && channel.id !== context.Channel.id ? args.slice(1).join(' ') : args.join(' ');
+            const text = (args[0] && channel.id !== context.Channel.id ? args.slice(1).join(' ') : args.join(' ')).trim();
             if (!text) return context.ReplyError('Announcement Required', 'Provide announcement text.');
             await channel.send({ embeds: [EmbedFactory.CreateInfo('Announcement', text)] });
             return context.ReplySuccess('Announcement Sent', `Posted in ${channel}.`);

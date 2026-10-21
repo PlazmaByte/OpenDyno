@@ -40,13 +40,18 @@ test('slash family routes dispatch their mapped leaf with route arguments', asyn
     const handler = new CommandHandler({}, {});
     const invoked = [];
     handler.Execute = async (command, context) => invoked.push({ name: command.Name, args: context.Args });
-    const makeInteraction = (commandName, subcommand, argumentName, argumentsText) => ({
+    const makeInteraction = (commandName, subcommand, values = {}) => ({
         guild: { id: 'guild-test' },
         commandName,
         isChatInputCommand: () => true,
         options: {
             getSubcommand: () => subcommand,
-            getString: name => name === argumentName ? argumentsText : null
+            getString: name => values[name] ?? null,
+            getInteger: name => values[name] ?? null,
+            getUser: name => values[name] ? { id: values[name] } : null,
+            getRole: name => values[name] ? { id: values[name] } : null,
+            getChannel: name => values[name] ? { id: values[name] } : null,
+            getBoolean: name => values[name] ?? null
         },
         user: { id: 'user-test' },
         member: {},
@@ -54,12 +59,34 @@ test('slash family routes dispatch their mapped leaf with route arguments', asyn
         client: {}
     });
 
-    await handler.HandleInteraction(makeInteraction('role', 'assign', 'member_and_role', '@user @role'));
-    await handler.HandleInteraction(makeInteraction('automod', 'disable', null, null));
-    await handler.HandleInteraction(makeInteraction('ban', null, 'member_days_reason', '@user 2 repeated spam'));
+    await handler.HandleInteraction(makeInteraction('role', 'assign', { member: 'user-id', role: 'role-id' }));
+    await handler.HandleInteraction(makeInteraction('automod', 'disable'));
+    await handler.HandleInteraction(makeInteraction('ban', null, {
+        member: 'user-id',
+        purge_days: 2,
+        reason: 'repeated spam'
+    }));
+    await handler.HandleInteraction(makeInteraction('ban', null, {
+        member: 'user-id',
+        reason: 'reason without purge days'
+    }));
+    await handler.HandleInteraction(makeInteraction('points', null, { amount: 5 }));
+    await handler.HandleInteraction(makeInteraction('role', 'create', {
+        role_name: 'New Role',
+        hex_color: '#123abc',
+        hoist: true
+    }));
+    await handler.HandleInteraction(makeInteraction('announce', null, {
+        message: 'Server update',
+        channel: 'channel-id'
+    }));
 
-    assert.deepEqual(invoked.map(item => item.name), ['role', 'module', 'ban']);
-    assert.deepEqual(invoked[0].args, ['@user', '@role', 'add']);
+    assert.deepEqual(invoked.map(item => item.name), ['role', 'module', 'ban', 'ban', 'points', 'addrole', 'announce']);
+    assert.deepEqual(invoked[0].args, ['user-id', 'role-id', 'add']);
     assert.deepEqual(invoked[1].args, ['automod', 'disabled']);
-    assert.deepEqual(invoked[2].args, ['@user', '2', 'repeated', 'spam']);
+    assert.deepEqual(invoked[2].args, ['user-id', '2', 'repeated spam']);
+    assert.deepEqual(invoked[3].args, ['user-id', '', 'reason without purge days']);
+    assert.deepEqual(invoked[4].args, ['', '5']);
+    assert.deepEqual(invoked[5].args, ['New Role', '#123abc', 'hoist']);
+    assert.deepEqual(invoked[6].args, ['channel-id', 'Server update']);
 });

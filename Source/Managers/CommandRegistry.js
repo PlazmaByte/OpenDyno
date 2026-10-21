@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, ChannelType } = require('discord.js');
 
 const Groups = {
     Core: {
@@ -211,17 +211,221 @@ const CommandArguments = {
     tag: { Name: 'action_name_and_text', Description: 'Tag name, or action and values for add, edit, or del.' }
 };
 
-function AddCommandOption(subcommand, name, description, argumentOption) {
+const StructuredArguments = {
+    ban: [
+        { Type: 'User', Name: 'member', Description: 'Member or user to ban.' },
+        { Type: 'Integer', Name: 'purge_days', Description: 'Recent message days to delete (0-7).', Required: false, Min: 0, Max: 7 },
+        { Type: 'String', Name: 'reason', Description: 'Reason for the ban.', Required: false }
+    ],
+    case: [{ Type: 'Integer', Name: 'case_id', Description: 'Moderation case ID.' }],
+    clean: [{ Type: 'Integer', Name: 'message_count', Description: 'Maximum messages to delete (default 50).', Required: false, Min: 1, Max: 100 }],
+    clearnotes: [{ Type: 'User', Name: 'member', Description: 'Member whose notes should be cleared.' }],
+    clearwarn: [{ Type: 'User', Name: 'member', Description: 'Member whose warnings should be cleared.' }],
+    delnote: [{ Type: 'Integer', Name: 'note_id', Description: 'Moderator note ID.' }],
+    delwarn: [{ Type: 'Integer', Name: 'warning_id', Description: 'Warning ID.' }],
+    duration: [
+        { Type: 'Integer', Name: 'case_id', Description: 'Active moderation case ID.' },
+        { Type: 'String', Name: 'new_duration', Description: 'New timeout duration, such as 10m or 2h.' }
+    ],
+    editnote: [
+        { Type: 'Integer', Name: 'note_id', Description: 'Moderator note ID.' },
+        { Type: 'String', Name: 'new_text', Description: 'Replacement note text.' }
+    ],
+    kick: [
+        { Type: 'User', Name: 'member', Description: 'Member to kick.' },
+        { Type: 'String', Name: 'reason', Description: 'Reason for the kick.', Required: false }
+    ],
+    lock: [{ Type: 'Channel', Name: 'channel', Description: 'Channel to lock.', Required: false }],
+    unlock: [{ Type: 'Channel', Name: 'channel', Description: 'Channel to unlock.', Required: false }],
+    members: [{ Type: 'Role', Name: 'role', Description: 'Role whose members should be listed.' }],
+    modlogs: [{ Type: 'User', Name: 'member', Description: 'Member whose history should be listed.' }],
+    modstats: [{ Type: 'User', Name: 'moderator', Description: 'Moderator whose actions should be summarized.', Required: false }],
+    mute: [
+        { Type: 'User', Name: 'member', Description: 'Member to time out.' },
+        { Type: 'String', Name: 'duration', Description: 'Timeout duration, such as 10m or 2h.' },
+        { Type: 'String', Name: 'reason', Description: 'Reason for the timeout.', Required: false }
+    ],
+    note: [
+        { Type: 'User', Name: 'member', Description: 'Member to attach a note to.' },
+        { Type: 'String', Name: 'note', Description: 'Private moderator note.' }
+    ],
+    notes: [{ Type: 'User', Name: 'member', Description: 'Member whose notes should be listed.' }],
+    purge: [
+        { Type: 'Integer', Name: 'message_count', Description: 'Number of recent messages to delete (1-1000).', Min: 1, Max: 1000 },
+        { Type: 'String', Name: 'filter', Description: 'Optional filter: bots, user, links, or images.', Required: false },
+        { Type: 'User', Name: 'filter_member', Description: 'Member for the user filter.', Required: false }
+    ],
+    reason: [
+        { Type: 'Integer', Name: 'case_id', Description: 'Moderation case ID.' },
+        { Type: 'String', Name: 'new_reason', Description: 'Updated reason for the case.' }
+    ],
+    softban: [
+        { Type: 'User', Name: 'member', Description: 'Member or user to softban.' },
+        { Type: 'Integer', Name: 'purge_days', Description: 'Recent message days to delete (0-7).', Required: false, Min: 0, Max: 7 },
+        { Type: 'String', Name: 'reason', Description: 'Reason for the softban.', Required: false }
+    ],
+    unban: [
+        { Type: 'String', Name: 'user_id', Description: 'ID of the banned user.' },
+        { Type: 'String', Name: 'reason', Description: 'Reason for the unban.', Required: false }
+    ],
+    unmute: [
+        { Type: 'User', Name: 'member', Description: 'Member whose timeout should be removed.' },
+        { Type: 'String', Name: 'reason', Description: 'Reason for removing the timeout.', Required: false }
+    ],
+    warn: [
+        { Type: 'User', Name: 'member', Description: 'Member to warn.' },
+        { Type: 'String', Name: 'reason', Description: 'Reason for the warning.', Required: false }
+    ],
+    warnings: [{ Type: 'User', Name: 'member', Description: 'Member whose warnings should be listed.' }],
+    addmod: [{ Type: 'Role', Name: 'role', Description: 'Role to grant moderator access.' }],
+    delmod: [{ Type: 'Role', Name: 'role', Description: 'Role to revoke moderator access from.' }],
+    delrole: [{ Type: 'Role', Name: 'role', Description: 'Role to delete.' }],
+    ignorechannel: [{ Type: 'Channel', Name: 'channel', Description: 'Channel to toggle on the ignore list.' }],
+    ignorerole: [{ Type: 'Role', Name: 'role', Description: 'Role to toggle on the ignore list.' }],
+    ignoreuser: [{ Type: 'User', Name: 'user', Description: 'User to toggle on the ignore list.' }],
+    warnthreshold: [
+        { Type: 'Integer', Name: 'warning_count', Description: 'Active warnings needed to trigger a timeout (2-100).', Required: false, Min: 2, Max: 100 },
+        { Type: 'String', Name: 'timeout_duration', Description: 'Timeout duration, such as 10m or 2h.', Required: false }
+    ],
+    mentionable: [{ Type: 'Role', Name: 'role', Description: 'Role whose mentionability should be toggled.' }],
+    logchannel: [
+        { Type: 'Channel', Name: 'channel', Description: 'Text channel for audit logs; leave blank to clear it.', Required: false }
+    ],
+    modlogchannel: [
+        { Type: 'Channel', Name: 'channel', Description: 'Text channel for moderation logs; leave blank to clear it.', Required: false }
+    ],
+    addrank: [{ Type: 'Role', Name: 'role', Description: 'Role to add to self-assignable ranks.' }],
+    delrank: [{ Type: 'Role', Name: 'role', Description: 'Role to remove from self-assignable ranks.' }],
+    rank: [{ Type: 'Role', Name: 'role', Description: 'Self-assignable role to join or leave.' }],
+    roleinfo: [{ Type: 'Role', Name: 'role', Description: 'Role to inspect.' }],
+    slowmode: [{ Type: 'Integer', Name: 'seconds', Description: 'Slowmode delay in seconds (0 disables slowmode).', Min: 0, Max: 21600 }],
+    avatar: [{ Type: 'User', Name: 'member', Description: 'Member or user whose avatar should be shown.', Required: false }],
+    whois: [{ Type: 'User', Name: 'member', Description: 'Member to inspect (defaults to you).', Required: false }],
+    profile: [{ Type: 'User', Name: 'member', Description: 'Member profile to show (defaults to you).', Required: false }],
+    points: [
+        { Type: 'User', Name: 'member', Description: 'Member whose points to view or change.', Required: false },
+        { Type: 'Integer', Name: 'amount', Description: 'Points to add or deduct.', Required: false }
+    ],
+    announce: [
+        { Type: 'String', Name: 'message', Description: 'Announcement text.' },
+        { Type: 'Channel', Name: 'channel', Description: 'Channel to post in (defaults to the current channel).', Required: false }
+    ],
+    setnick: [
+        { Type: 'User', Name: 'member', Description: 'Member whose nickname should change.' },
+        { Type: 'String', Name: 'nickname', Description: 'New nickname; leave blank to clear it.', Required: false }
+    ]
+};
+
+const CommandArgumentOrders = {
+    announce: [1, 0]
+};
+
+const FamilyArguments = {
+    'role:assign': [
+        { Type: 'User', Name: 'member', Description: 'Member to update.' },
+        { Type: 'Role', Name: 'role', Description: 'Role to add.' }
+    ],
+    'role:remove': [
+        { Type: 'User', Name: 'member', Description: 'Member to update.' },
+        { Type: 'Role', Name: 'role', Description: 'Role to remove.' }
+    ],
+    'role:create': [
+        { Type: 'String', Name: 'role_name', Description: 'Name for the new role.' },
+        { Type: 'String', Name: 'hex_color', Description: 'Optional HEX color, such as #3498DB.', Required: false },
+        { Type: 'Boolean', Name: 'hoist', Description: 'Display this role separately in the member list.', Required: false }
+    ],
+    'role:delete': [{ Type: 'Role', Name: 'role', Description: 'Role to delete.' }],
+    'role:color': [
+        { Type: 'Role', Name: 'role', Description: 'Role whose color should change.' },
+        { Type: 'String', Name: 'hex_color', Description: 'New HEX color, such as #3498DB.' }
+    ],
+    'role:rename': [
+        { Type: 'Role', Name: 'role', Description: 'Role to rename.' },
+        { Type: 'String', Name: 'new_name', Description: 'New role name.' }
+    ],
+    'role:mentionable': [{ Type: 'Role', Name: 'role', Description: 'Role whose mentionability should be toggled.' }],
+    'role:info': [{ Type: 'Role', Name: 'role', Description: 'Role to inspect.' }],
+    'role:join': [{ Type: 'Role', Name: 'role', Description: 'Self-assignable role to join or leave.' }],
+    'role:addrank': [{ Type: 'Role', Name: 'role', Description: 'Role to add to self-assignable ranks.' }],
+    'role:delrank': [{ Type: 'Role', Name: 'role', Description: 'Role to remove from self-assignable ranks.' }],
+    'role:persist': [
+        { Type: 'User', Name: 'member', Description: 'Member whose role persistence should change.' },
+        { Type: 'Role', Name: 'role', Description: 'Role to persist or stop persisting.' }
+    ],
+    'role:temporary': [
+        { Type: 'User', Name: 'member', Description: 'Member to grant the temporary role to.' },
+        { Type: 'Role', Name: 'role', Description: 'Role to grant.' },
+        { Type: 'String', Name: 'duration', Description: 'How long to grant the role, such as 10m or 2h.' }
+    ],
+    'notes:add': [
+        { Type: 'User', Name: 'member', Description: 'Member to attach a note to.' },
+        { Type: 'String', Name: 'note', Description: 'Private moderator note.' }
+    ],
+    'notes:list': [{ Type: 'User', Name: 'member', Description: 'Member whose notes should be listed.' }],
+    'notes:clear': [{ Type: 'User', Name: 'member', Description: 'Member whose notes should be cleared.' }],
+    'notes:delete': [{ Type: 'Integer', Name: 'note_id', Description: 'Moderator note ID.' }],
+    'notes:edit': [
+        { Type: 'Integer', Name: 'note_id', Description: 'Moderator note ID.' },
+        { Type: 'String', Name: 'new_text', Description: 'Replacement note text.' }
+    ],
+    'warnings:add': [
+        { Type: 'User', Name: 'member', Description: 'Member to warn.' },
+        { Type: 'String', Name: 'reason', Description: 'Reason for the warning.', Required: false }
+    ],
+    'warnings:list': [{ Type: 'User', Name: 'member', Description: 'Member whose warnings should be listed.' }],
+    'warnings:clear': [{ Type: 'User', Name: 'member', Description: 'Member whose warnings should be cleared.' }],
+    'warnings:delete': [{ Type: 'Integer', Name: 'warning_id', Description: 'Warning ID.' }],
+    'cases:show': [{ Type: 'Integer', Name: 'case_id', Description: 'Moderation case ID.' }],
+    'cases:reason': [
+        { Type: 'Integer', Name: 'case_id', Description: 'Moderation case ID.' },
+        { Type: 'String', Name: 'new_reason', Description: 'Updated reason for the case.' }
+    ],
+    'cases:duration': [
+        { Type: 'Integer', Name: 'case_id', Description: 'Active moderation case ID.' },
+        { Type: 'String', Name: 'new_duration', Description: 'New timeout duration.' }
+    ],
+    'cases:history': [{ Type: 'User', Name: 'member', Description: 'Member whose history should be listed.' }],
+    'cases:stats': [{ Type: 'User', Name: 'moderator', Description: 'Moderator whose actions should be summarized.', Required: false }],
+    'ignore:channel': [{ Type: 'Channel', Name: 'channel', Description: 'Channel to toggle on the ignore list.' }],
+    'ignore:role': [{ Type: 'Role', Name: 'role', Description: 'Role to toggle on the ignore list.' }],
+    'ignore:user': [{ Type: 'User', Name: 'user', Description: 'User to toggle on the ignore list.' }],
+    'channel:lock': [{ Type: 'Channel', Name: 'channel', Description: 'Channel to lock.', Required: false }],
+    'channel:unlock': [{ Type: 'Channel', Name: 'channel', Description: 'Channel to unlock.', Required: false }],
+    'channel:clean': [{ Type: 'Integer', Name: 'message_count', Description: 'Maximum messages to delete (default 50).', Required: false, Min: 1, Max: 100 }],
+    'channel:members': [{ Type: 'Role', Name: 'role', Description: 'Role whose members should be listed.' }],
+    'channel:reactions': [{ Type: 'String', Name: 'message_id', Description: 'ID of the message whose reactions should be shown.' }]
+};
+
+function AddTypedOption(builder, argument) {
+    const method = {
+        String: 'addStringOption',
+        Integer: 'addIntegerOption',
+        Boolean: 'addBooleanOption',
+        User: 'addUserOption',
+        Role: 'addRoleOption',
+        Channel: 'addChannelOption'
+    }[argument.Type];
+    return builder[method](option => {
+        option.setName(argument.Name).setDescription(argument.Description.slice(0, 100)).setRequired(argument.Required !== false);
+        if (argument.Min !== undefined) option.setMinValue(argument.Min);
+        if (argument.Max !== undefined) option.setMaxValue(argument.Max);
+        if (argument.Type === 'Channel') option.addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement);
+        return option;
+    });
+}
+
+function AddCommandOption(subcommand, name, description, argumentsList) {
     const builder = subcommand
         .setName(name)
         .setDescription(description.slice(0, 100));
-    if (argumentOption) {
-        builder.addStringOption(option => option
-            .setName(argumentOption.Name)
-            .setDescription(argumentOption.Description.slice(0, 100))
-            .setRequired(false));
-    }
+    for (const argument of argumentsList || []) AddTypedOption(builder, argument);
     return builder;
+}
+
+function GetCommandArguments(commandName) {
+    if (StructuredArguments[commandName]) return StructuredArguments[commandName];
+    const argument = CommandArguments[commandName];
+    return argument ? [{ Type: 'String', ...argument, Required: false }] : [];
 }
 
 const SlashFamilies = {
@@ -319,9 +523,10 @@ const SlashCommands = [];
 for (const [rootName, family] of Object.entries(SlashFamilies)) {
     const root = new SlashCommandBuilder().setName(rootName).setDescription(family.Description.slice(0, 100));
     for (const [subcommandName, route] of Object.entries(family.Subcommands)) {
-        const argumentOption = route.Prefix ? undefined : CommandArguments[route.Command];
-        root.addSubcommand(subcommand => AddCommandOption(subcommand, subcommandName, route.Description, argumentOption));
-        SlashRoutes.set(`${rootName}:${subcommandName}`, { ...route, ArgumentOption: argumentOption });
+        const argumentsList = FamilyArguments[`${rootName}:${subcommandName}`] ||
+            (route.Prefix ? [] : GetCommandArguments(route.Command));
+        root.addSubcommand(subcommand => AddCommandOption(subcommand, subcommandName, route.Description, argumentsList));
+        SlashRoutes.set(`${rootName}:${subcommandName}`, { ...route, Arguments: argumentsList });
     }
     SlashCommands.push(root.toJSON());
 }
@@ -331,15 +536,14 @@ for (const command of Commands) {
     const root = new SlashCommandBuilder()
         .setName(command.Name)
         .setDescription(command.Description.slice(0, 100));
-    const argumentOption = CommandArguments[command.Name];
-    if (argumentOption) {
-        root.addStringOption(option => option
-            .setName(argumentOption.Name)
-            .setDescription(argumentOption.Description.slice(0, 100))
-            .setRequired(false));
-    }
+    const argumentsList = GetCommandArguments(command.Name);
+    for (const argument of argumentsList) AddTypedOption(root, argument);
     SlashCommands.push(root.toJSON());
-    SlashRoutes.set(command.Name, { Command: command.Name, ArgumentOption: argumentOption });
+    SlashRoutes.set(command.Name, {
+        Command: command.Name,
+        Arguments: argumentsList,
+        ArgumentOrder: CommandArgumentOrders[command.Name]
+    });
 }
 
 module.exports = { Commands, Groups, SlashCommands, SlashFamilies, SlashRoutes, CommandMap };
