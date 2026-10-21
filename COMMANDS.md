@@ -129,4 +129,5 @@ Use `/ignore channel`, `/ignore role`, or `/ignore user` to toggle a target on t
 - Bot features depend on its granted Discord permissions and channel overrides. Use `/channel diagnose` to inspect the current channel's effective permissions.
 - Commands that change server configuration require administrator access. Moderation commands require moderator permissions or a role configured with `/addmod`.
 - Commands can be disabled per server with `/command`, or by disabling a supported module with `/module`.
+- The `levels` and `tags` modules can be enabled or disabled independently; `levelsandtags` disables both together.
 - Slash commands are registered globally when the bot starts; Discord can take time to propagate command changes.

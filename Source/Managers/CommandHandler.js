@@ -112,10 +112,15 @@ class CommandHandler {
         }
         try {
             const data = loadedData || await this.Database.GetGuild(context.Guild.id);
-            const moduleName = command.Category === 'LevelsAndTags' ? 'levelsandtags' : command.Category.toLowerCase();
+            const moduleName = command.Name === 'slowmode'
+                ? 'management'
+                : command.Category === 'LevelsAndTags' ? 'levelsandtags' : command.Category.toLowerCase();
+            const featureModule = command.Name === 'tag' || command.Name === 'tags'
+                ? 'tags'
+                : moduleName === 'levelsandtags' ? 'levels' : moduleName;
             if (command.Name !== 'module' && (
                 data.Modules[moduleName] === false ||
-                (moduleName === 'levelsandtags' && (data.Modules.levels === false || data.Modules.tags === false))
+                data.Modules[featureModule] === false
             )) {
                 return context.ReplyError('Module Disabled', `The ${command.Category} module is disabled in this server.`);
             }
@@ -145,7 +150,10 @@ class CommandHandler {
         const permission = command.Access === 'Moderator'
             ? context.Member.permissions.has(PermissionFlagsBits.ModerateMembers) || context.Member.permissions.has(PermissionFlagsBits.ManageMessages)
             : administrator;
-        if (!administrator && !configuredModerator && !permission) {
+        const hasAccess = command.Access === 'Administrator'
+            ? administrator
+            : administrator || configuredModerator || permission;
+        if (!hasAccess) {
             return command.Access === 'Moderator'
                 ? 'This command requires moderator permissions or a configured moderator role.'
                 : 'This command requires server administrator permissions.';
@@ -1163,7 +1171,9 @@ class CommandHandler {
         const afk = data.Afk[message.author.id];
         if (afk) {
             delete data.Afk[message.author.id];
-            await this.Database.SaveGuild(message.guild.id, data);
+            await this.Database.UpdateGuild(message.guild.id, currentData => {
+                delete currentData.Afk[message.author.id];
+            });
             await message.reply({ content: 'Welcome back. Your AFK status has been cleared.', allowedMentions: { repliedUser: false } });
         }
         for (const userId of message.mentions.users.keys()) {
@@ -1180,21 +1190,45 @@ class CommandHandler {
             });
             if (member) await message.channel.send({ content: `<@${userId}> A highlight matched in ${message.channel}.`, allowedMentions: { users: [userId] } });
         }
+        if (data.Modules.levels === false || data.Modules.levelsandtags === false) return;
         const cooldownKey = `${message.guild.id}:${message.author.id}`;
         if ((this.XpCooldowns ||= new Map()).has(cooldownKey)) return;
         this.XpCooldowns.set(cooldownKey, Date.now());
-        if (data.Modules.levels === false || data.Modules.levelsandtags === false) return;
-        const profile = data.Levels[message.author.id] || { Xp: 0, Level: 0 };
-        profile.Xp += 1 + Math.floor(Math.random() * 5);
-        const nextLevel = Math.floor(Math.sqrt(profile.Xp / 100));
-        if (nextLevel > profile.Level) {
-            profile.Level = nextLevel;
-            await message.channel.send({ content: `Congratulations <@${message.author.id}>! You reached level ${nextLevel}.`, allowedMentions: { users: [message.author.id] } });
-        }
-        data.Levels[message.author.id] = profile;
-        await this.Database.SaveGuild(message.guild.id, data);
         const timer = setTimeout(() => this.XpCooldowns.delete(cooldownKey), 60000);
         timer.unref();
+        let reachedLevel = null;
+        let levelsEnabled = true;
+        try {
+            await this.Database.UpdateGuild(message.guild.id, currentData => {
+                if (currentData.Modules.levels === false || currentData.Modules.levelsandtags === false) {
+                    levelsEnabled = false;
+                    return;
+                }
+                const profile = currentData.Levels[message.author.id] || { Xp: 0, Level: 0 };
+                profile.Xp += 1 + Math.floor(Math.random() * 5);
+                const nextLevel = Math.floor(Math.sqrt(profile.Xp / 100));
+                if (nextLevel > profile.Level) {
+                    profile.Level = nextLevel;
+                    reachedLevel = nextLevel;
+                }
+                currentData.Levels[message.author.id] = profile;
+            });
+        } catch (error) {
+            clearTimeout(timer);
+            this.XpCooldowns.delete(cooldownKey);
+            throw error;
+        }
+        if (!levelsEnabled) {
+            clearTimeout(timer);
+            this.XpCooldowns.delete(cooldownKey);
+            return;
+        }
+        if (reachedLevel !== null) {
+            await message.channel.send({
+                content: `Congratulations <@${message.author.id}>! You reached level ${reachedLevel}.`,
+                allowedMentions: { users: [message.author.id] }
+            });
+        }
     }
 }
 

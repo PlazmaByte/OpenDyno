@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node Index.js",
     "dev": "nodemon Index.js",
-    "test": "node --test Tests/TimeParserTest.js Tests/ArgumentParserTest.js Tests/CommandRegistryTest.js Tests/GroupedCommandTest.js Tests/DatabaseManagerTest.js Tests/ModerationCommandTest.js"
+    "test": "node --test Tests/TimeParserTest.js Tests/ArgumentParserTest.js Tests/CommandRegistryTest.js Tests/GroupedCommandTest.js Tests/DatabaseManagerTest.js Tests/ModerationCommandTest.js Tests/CommandHandlerBehaviorTest.js"
   },
   "keywords": [],
   "author": "",
